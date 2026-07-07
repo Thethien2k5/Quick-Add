@@ -11,6 +11,7 @@ function App() {
   const [currentResult, setCurrentResult] = useState("");
   const [activeTab, setActiveTab] = useState("api"); // 'api' | 'tweak'
   const lastShownRef = useRef(0);
+  const hasBeenFocusedRef = useRef(false);
   const [scaleFactor, setScaleFactor] = useState(1.0);
   const [recentModels, setRecentModels] = useState([]);
   const [availableModels, setAvailableModels] = useState([]);
@@ -114,12 +115,14 @@ function App() {
     const unsubProcessStart = window.runtime.EventsOn("processing-start", () => {
       setIsProcessing(true);
       setCurrentResult("");
+      hasBeenFocusedRef.current = false;
       setView("results");
     });
 
     const unsubProcessComplete = window.runtime.EventsOn("processing-complete", (result) => {
       setIsProcessing(false);
       setCurrentResult(result);
+      hasBeenFocusedRef.current = false;
       lastShownRef.current = Date.now();
       loadHistory();
     });
@@ -145,18 +148,29 @@ function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [view]);
 
-  // Listen for click-outside (blur) on floating result Tab1
+  // Listen for focus and click-outside (blur) on floating result Tab1
   useEffect(() => {
+    const handleFocus = () => {
+      hasBeenFocusedRef.current = true;
+    };
+
     const handleBlur = () => {
       if (Date.now() - lastShownRef.current < 1000) {
         return;
       }
       if (view === "results" && !isCalibrating && !isProcessing) {
-        window.runtime.WindowHide();
+        if (hasBeenFocusedRef.current) {
+          hasBeenFocusedRef.current = false;
+          window.runtime.WindowHide();
+        }
       }
     };
+    window.addEventListener("focus", handleFocus);
     window.addEventListener("blur", handleBlur);
-    return () => window.removeEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("blur", handleBlur);
+    };
   }, [view, isCalibrating, isProcessing]);
 
   // Handle Drag Selection

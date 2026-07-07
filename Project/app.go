@@ -320,9 +320,14 @@ func (a *App) CaptureAndProcess(x, y, w, h int) string {
 		writeLog("CaptureAndProcess: emitting processing-complete")
 		runtime.EventsEmit(a.ctx, "processing-complete", result)
 
-		// Show Tab1 window at calibrated position
-		writeLog("CaptureAndProcess: showing main window")
+		// Show Tab1 window at calibrated position and force to foreground
+		writeLog("CaptureAndProcess: showing main window and forcing foreground focus")
 		runtime.WindowShow(a.ctx)
+		runtime.WindowSetAlwaysOnTop(a.ctx, true)
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			runtime.WindowSetAlwaysOnTop(a.ctx, false)
+		}()
 	}()
 
 	return "PROCESSING"
