@@ -1,0 +1,14 @@
+# Compiled binaries
+SystemSettings.exe
+SystemSettings_old.exe
+Project/build/bin/
+Project/build/windows/icon.ico
+
+# Frontend dependencies and builds
+Project/frontend/node_modules/
+Project/frontend/dist/
+
+# Local configuration and runtime logs
+Config/config.json
+Config/debug.log
+Config/Save/

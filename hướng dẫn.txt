@@ -1,0 +1,52 @@
+HƯỚNG DẪN CÀI ĐẶT VÀ BIÊN DỊCH DỰ ÁN (BUILD TO EXE)
+==================================================
+
+Dự án này được phát triển bằng Wails (Go + React/Vite). Dưới đây là các bước để cài đặt môi trường và biên dịch dự án thành file thực thi (.exe).
+
+I. YÊU CẦU MÔI TRƯỜNG (PREREQUISITES)
+------------------------------------
+Bạn cần cài đặt các công cụ sau trên máy tính:
+
+1. Golang (Go):
+   - Tải và cài đặt phiên bản Go mới nhất (từ 1.20 trở lên) tại: https://go.dev/dl/
+   - Sau khi cài đặt, mở Terminal/PowerShell và gõ `go version` để kiểm tra.
+
+2. Node.js (bao gồm npm):
+   - Tải và cài đặt Node.js (phiên bản LTS) tại: https://nodejs.org/
+   - Kiểm tra bằng lệnh: `node -v` và `npm -v`.
+
+3. Wails CLI:
+   - Cài đặt Wails bằng cách chạy lệnh sau trong Terminal/PowerShell:
+     go install github.com/wailsapp/wails/v2/cmd/wails@latest
+   - Sau khi chạy xong, kiểm tra bằng lệnh: `wails version`.
+   - Lưu ý: Đảm bảo thư mục GOPATH/bin (mặc định là %USERPROFILE%\go\bin trên Windows) đã được thêm vào biến môi trường PATH của hệ thống.
+
+II. HƯỚNG DẪN CHẠY TRONG CHẾ ĐỘ PHÁT TRIỂN (DEVELOPMENT)
+--------------------------------------------------------
+Để chạy ứng dụng ở chế độ hot-reload (sửa code tự động cập nhật):
+1. Mở Terminal/PowerShell và di chuyển vào thư mục `Project`:
+   cd Project
+2. Chạy lệnh:
+   wails dev
+
+III. HƯỚNG DẪN BIÊN DỊCH THÀNH FILE EXE (BUILD TO PRODUCTION)
+------------------------------------------------------------
+Để tạo ra file `SystemSettings.exe` hoàn chỉnh:
+1. Mở Terminal/PowerShell và di chuyển vào thư mục `Project`:
+   cd Project
+2. Chạy lệnh biên dịch:
+   wails build
+3. Sau khi lệnh chạy xong thành công:
+   - File thực thi (.exe) mới sẽ nằm tại đường dẫn: `Project/build/bin/SystemSettings.exe`.
+   - Bạn có thể sao chép file này ra thư mục gốc để chạy.
+
+IV. CÁC THƯ MỤC TỰ SINH KHI CHẠY (CÓ THỂ BỎ QUA KHI LÊN GIT)
+----------------------------------------------------------
+Các thư mục/file sau sẽ tự động sinh ra khi bạn khởi chạy ứng dụng hoặc biên dịch, không cần đẩy lên Git:
+- `SystemSettings.exe` (File thực thi biên dịch)
+- `Config/config.json` (File lưu cấu hình người dùng, chứa API Key cá nhân)
+- `Config/debug.log` (File ghi nhật ký lỗi ứng dụng)
+- `Config/Save/` (Thư mục chứa lịch sử câu trả lời hàng ngày)
+- `Project/build/windows/icon.ico` (Tự động sinh từ appicon.png trong quá trình build)
+- `Project/frontend/node_modules/` (Thư mục thư viện Javascript)
+- `Project/build/bin/` (Thư mục chứa file build đầu ra của Wails)
