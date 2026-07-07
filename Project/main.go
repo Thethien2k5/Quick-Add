@@ -269,6 +269,7 @@ func main() {
 		Height:            550,
 		Frameless:         true, // Always frameless
 		StartHidden:       true, // Runs silently in system tray
+		AlwaysOnTop:       true,
 		BackgroundColour:  &options.RGBA{R: 0, G: 0, B: 0, A: 0}, // transparent support
 		AssetServer: &assetserver.Options{
 			Assets: assets,

@@ -26,6 +26,10 @@ export function LoadConfig() {
   return window['go']['main']['App']['LoadConfig']();
 }
 
+export function LogFromJS(arg1) {
+  return window['go']['main']['App']['LogFromJS'](arg1);
+}
+
 export function RemoveRecentModel(arg1) {
   return window['go']['main']['App']['RemoveRecentModel'](arg1);
 }

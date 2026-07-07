@@ -56,11 +56,11 @@ function App() {
     }
   };
 
-  const loadHistory = async () => {
+  const loadHistory = async (updateCurrent = true) => {
     try {
       const hist = await GetHistory();
       setHistory(hist || []);
-      if (hist && hist.length > 0) {
+      if (updateCurrent && hist && hist.length > 0) {
         setCurrentResult(hist[0].content);
       }
     } catch (e) {
@@ -113,6 +113,7 @@ function App() {
 
     // Listen for AI processing status
     const unsubProcessStart = window.runtime.EventsOn("processing-start", () => {
+      if (window.go?.main?.App?.LogFromJS) window.go.main.App.LogFromJS("processing-start event received");
       setIsProcessing(true);
       setCurrentResult("");
       hasBeenFocusedRef.current = false;
@@ -120,11 +121,17 @@ function App() {
     });
 
     const unsubProcessComplete = window.runtime.EventsOn("processing-complete", (result) => {
+      if (window.go?.main?.App?.LogFromJS) window.go.main.App.LogFromJS("processing-complete event received");
       setIsProcessing(false);
       setCurrentResult(result);
       hasBeenFocusedRef.current = false;
       lastShownRef.current = Date.now();
-      loadHistory();
+      loadHistory(false);
+      // Ensure window is focused to correctly capture subsequent clicks outside
+      setTimeout(() => {
+        if (window.go?.main?.App?.LogFromJS) window.go.main.App.LogFromJS("calling window.focus() inside setTimeout");
+        window.focus();
+      }, 50);
     });
 
     return () => {
@@ -151,18 +158,29 @@ function App() {
   // Listen for focus and click-outside (blur) on floating result Tab1
   useEffect(() => {
     const handleFocus = () => {
+      if (window.go?.main?.App?.LogFromJS) window.go.main.App.LogFromJS("focus event triggered on window");
       hasBeenFocusedRef.current = true;
     };
 
     const handleBlur = () => {
-      if (Date.now() - lastShownRef.current < 1000) {
+      const elapsed = Date.now() - lastShownRef.current;
+      if (window.go?.main?.App?.LogFromJS) {
+        window.go.main.App.LogFromJS(`blur event triggered on window. elapsed since lastShown=${elapsed}ms, view=${view}, isCalibrating=${isCalibrating}, isProcessing=${isProcessing}, hasBeenFocused=${hasBeenFocusedRef.current}`);
+      }
+      if (elapsed < 1000) {
+        if (window.go?.main?.App?.LogFromJS) window.go.main.App.LogFromJS("blur ignored: within 1 second of lastShown");
         return;
       }
       if (view === "results" && !isCalibrating && !isProcessing) {
         if (hasBeenFocusedRef.current) {
           hasBeenFocusedRef.current = false;
+          if (window.go?.main?.App?.LogFromJS) window.go.main.App.LogFromJS("blur action: hiding window!");
           window.runtime.WindowHide();
+        } else {
+          if (window.go?.main?.App?.LogFromJS) window.go.main.App.LogFromJS("blur ignored: hasBeenFocused is false");
         }
+      } else {
+        if (window.go?.main?.App?.LogFromJS) window.go.main.App.LogFromJS("blur ignored: not in results view or isCalibrating/isProcessing");
       }
     };
     window.addEventListener("focus", handleFocus);
@@ -487,7 +505,14 @@ function App() {
                                   type="button"
                                   onClick={async (e) => {
                                     e.stopPropagation();
+                                    if (window.go?.main?.App?.LogFromJS) {
+                                      window.go.main.App.LogFromJS(`x clicked on model: ${m}`);
+                                    }
                                     const updatedCfg = await RemoveRecentModel(m);
+                                    if (window.go?.main?.App?.LogFromJS) {
+                                      window.go.main.App.LogFromJS(`RemoveRecentModel returned: ${JSON.stringify(updatedCfg)}`);
+                                    }
+                                    setConfig(updatedCfg);
                                     setRecentModels(updatedCfg.recent_models || []);
                                   }}
                                   style={{

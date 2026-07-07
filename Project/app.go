@@ -320,14 +320,9 @@ func (a *App) CaptureAndProcess(x, y, w, h int) string {
 		writeLog("CaptureAndProcess: emitting processing-complete")
 		runtime.EventsEmit(a.ctx, "processing-complete", result)
 
-		// Show Tab1 window at calibrated position and force to foreground
-		writeLog("CaptureAndProcess: showing main window and forcing foreground focus")
+		// Show Tab1 window at calibrated position
+		writeLog("CaptureAndProcess: showing main window")
 		runtime.WindowShow(a.ctx)
-		runtime.WindowSetAlwaysOnTop(a.ctx, true)
-		go func() {
-			time.Sleep(200 * time.Millisecond)
-			runtime.WindowSetAlwaysOnTop(a.ctx, false)
-		}()
 	}()
 
 	return "PROCESSING"
@@ -600,14 +595,21 @@ func (a *App) ExitApp() {
 
 // RemoveRecentModel removes a model from the recent models list and saves the config
 func (a *App) RemoveRecentModel(model string) Config {
+	trimmedModel := strings.TrimSpace(model)
+	writeLog("RemoveRecentModel: requested to remove '%s' (trimmed: '%s')", model, trimmedModel)
+	writeLog("RemoveRecentModel: current recent list: %v", a.config.RecentModels)
+
 	var updated []string
 	for _, m := range a.config.RecentModels {
-		if m != model && m != "" {
+		trimmedM := strings.TrimSpace(m)
+		if trimmedM != trimmedModel && trimmedM != "" {
 			updated = append(updated, m)
 		}
 	}
 	a.config.RecentModels = updated
+	writeLog("RemoveRecentModel: updated recent list before save: %v", a.config.RecentModels)
 	a.SaveConfig(a.config)
+	writeLog("RemoveRecentModel: updated recent list after save: %v", a.config.RecentModels)
 	return a.config
 }
 
@@ -685,4 +687,9 @@ func (a *App) FetchAvailableModels() []string {
 
 	writeLog("FetchAvailableModels: successfully fetched %d models", len(models))
 	return models
+}
+
+// LogFromJS logs messages from the frontend to the backend debug.log
+func (a *App) LogFromJS(msg string) {
+	writeLog("[JS] %s", msg)
 }

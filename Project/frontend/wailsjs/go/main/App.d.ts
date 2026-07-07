@@ -14,6 +14,8 @@ export function GetHistory():Promise<Array<main.HistoryEntry>>;
 
 export function LoadConfig():Promise<main.Config>;
 
+export function LogFromJS(arg1:string):Promise<void>;
+
 export function RemoveRecentModel(arg1:string):Promise<main.Config>;
 
 export function SaveCalibration(arg1:number,arg2:number,arg3:number,arg4:number):Promise<void>;
