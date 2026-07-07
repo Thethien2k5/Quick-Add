@@ -6,11 +6,15 @@ export function CaptureAndProcess(arg1:number,arg2:number,arg3:number,arg4:numbe
 
 export function ExitApp():Promise<void>;
 
+export function FetchAvailableModels():Promise<Array<string>>;
+
 export function GetConfig():Promise<main.Config>;
 
 export function GetHistory():Promise<Array<main.HistoryEntry>>;
 
 export function LoadConfig():Promise<main.Config>;
+
+export function RemoveRecentModel(arg1:string):Promise<main.Config>;
 
 export function SaveCalibration(arg1:number,arg2:number,arg3:number,arg4:number):Promise<void>;
 

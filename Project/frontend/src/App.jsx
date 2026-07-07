@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import './App.css';
-import { GetConfig, SaveConfig, CaptureAndProcess, GetHistory, SaveCalibration } from "../wailsjs/go/main/App";
+import { GetConfig, SaveConfig, CaptureAndProcess, GetHistory, SaveCalibration, RemoveRecentModel, FetchAvailableModels } from "../wailsjs/go/main/App";
 
 function App() {
   const [view, setView] = useState("results"); // 'overlay' | 'settings' | 'results'
@@ -11,6 +11,10 @@ function App() {
   const [currentResult, setCurrentResult] = useState("");
   const [activeTab, setActiveTab] = useState("api"); // 'api' | 'tweak'
   const lastShownRef = useRef(0);
+  const [scaleFactor, setScaleFactor] = useState(1.0);
+  const [recentModels, setRecentModels] = useState([]);
+  const [availableModels, setAvailableModels] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
   
   // Overlay Selection States
   const [bounds, setBounds] = useState({ x: 0, y: 0, w: 0, h: 0 });
@@ -40,6 +44,7 @@ function App() {
       setApiUrl(cfg.api_url || "");
       setApiKey(cfg.api_key || "");
       setModelName(cfg.model_name || "");
+      setRecentModels(cfg.recent_models || []);
       setMaxTokens(cfg.max_tokens || 2048);
       setFontSize(cfg.font_size || 14);
       setHotkey(cfg.hotkey || "Ctrl+C");
@@ -62,6 +67,31 @@ function App() {
     }
   };
 
+  const fetchModels = async () => {
+    try {
+      const models = await FetchAvailableModels();
+      setAvailableModels(models || []);
+    } catch (e) {
+      console.error("Failed to fetch models", e);
+    }
+  };
+
+  useEffect(() => {
+    if (view === "settings") {
+      fetchModels();
+    }
+  }, [view, apiProvider, apiUrl, apiKey]);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (showDropdown && !e.target.closest('.form-group')) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showDropdown]);
+
   useEffect(() => {
     loadConfiguration();
     loadHistory();
@@ -69,6 +99,7 @@ function App() {
     // Listen for crop startup
     const unsubCrop = window.runtime.EventsOn("start-crop", (screenBounds) => {
       setBounds(screenBounds);
+      setScaleFactor(screenBounds.scale || 1.0);
       setCrop({ x: 0, y: 0, w: 0, h: 0 });
       setView("overlay");
     });
@@ -155,11 +186,13 @@ function App() {
 
     // Calculate actual screen coordinates
     // bounds.x, bounds.y represent the virtual screen start (could be negative on multi-monitor)
-    const actualX = bounds.x + crop.x;
-    const actualY = bounds.y + crop.y;
+    const actualX = Math.round(bounds.x + crop.x * scaleFactor);
+    const actualY = Math.round(bounds.y + crop.y * scaleFactor);
+    const actualW = Math.round(crop.w * scaleFactor);
+    const actualH = Math.round(crop.h * scaleFactor);
 
     // Trigger crop processing in Go
-    CaptureAndProcess(actualX, actualY, crop.w, crop.h);
+    CaptureAndProcess(actualX, actualY, actualW, actualH);
   };
 
   // Save Settings Form
@@ -354,15 +387,155 @@ function App() {
                     />
                   </div>
 
-                  <div className="form-group">
+                  <div className="form-group" style={{ position: "relative" }}>
                     <label htmlFor="model-name">Tên Mô Hình (Model)</label>
-                    <input 
-                      type="text" 
-                      id="model-name" 
-                      value={modelName} 
-                      onChange={(e) => setModelName(e.target.value)} 
-                      placeholder={apiProvider === "gemini" ? "Ví dụ: gemini-1.5-flash" : "Ví dụ: main-combo"}
-                    />
+                    <div className="input-dropdown-wrapper" style={{ display: "flex", position: "relative", alignItems: "center" }}>
+                      <input 
+                        type="text" 
+                        id="model-name" 
+                        value={modelName} 
+                        onChange={(e) => setModelName(e.target.value)} 
+                        placeholder={apiProvider === "gemini" ? "Ví dụ: gemini-1.5-flash" : "Ví dụ: main-combo"}
+                        style={{ paddingRight: "40px", flex: 1 }}
+                      />
+                      <button 
+                        type="button"
+                        className="dropdown-arrow-btn"
+                        onClick={() => setShowDropdown(!showDropdown)}
+                        style={{
+                          position: "absolute",
+                          right: "10px",
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          fontSize: "14px",
+                          color: "var(--text-muted)",
+                          padding: "8px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center"
+                        }}
+                        aria-label="Chọn Model"
+                      >
+                        ▼
+                      </button>
+                    </div>
+
+                    {showDropdown && (
+                      <div className="model-dropdown-menu" style={{
+                        position: "absolute",
+                        top: "100%",
+                        left: 0,
+                        right: 0,
+                        maxHeight: "220px",
+                        overflowY: "auto",
+                        background: "#ffffff",
+                        border: "1px solid var(--border-color)",
+                        borderRadius: "8px",
+                        boxShadow: "var(--shadow-lg)",
+                        zIndex: 1000,
+                        marginTop: "4px"
+                      }}>
+                        {/* 1. Recent Models */}
+                        {recentModels.length > 0 && (
+                          <div className="dropdown-section">
+                            <div className="dropdown-section-title" style={{
+                              padding: "6px 12px",
+                              fontSize: "11px",
+                              fontWeight: "bold",
+                              color: "var(--accent-pink)",
+                              background: "#fff1f2",
+                              borderBottom: "1px solid #ffe4e6"
+                            }}>
+                              MODEL ĐÃ DÙNG GẦN ĐÂY
+                            </div>
+                            {recentModels.map((m, idx) => (
+                              <div 
+                                key={`recent-${idx}`} 
+                                className="dropdown-item"
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  padding: "8px 12px",
+                                  cursor: "pointer",
+                                  fontSize: "13px",
+                                  borderBottom: "1px solid #f1f5f9"
+                                }}
+                              >
+                                <span 
+                                  onClick={() => { setModelName(m); setShowDropdown(false); }}
+                                  style={{ flex: 1, color: "var(--text-main)", fontWeight: "500" }}
+                                >
+                                  {m}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    const updatedCfg = await RemoveRecentModel(m);
+                                    setRecentModels(updatedCfg.recent_models || []);
+                                  }}
+                                  style={{
+                                    background: "none",
+                                    border: "none",
+                                    cursor: "pointer",
+                                    color: "var(--text-muted)",
+                                    fontSize: "14px",
+                                    padding: "2px 6px"
+                                  }}
+                                  title="Xóa khỏi danh sách"
+                                >
+                                  &times;
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* 2. Available Models */}
+                        {availableModels.length > 0 && (
+                          <div className="dropdown-section">
+                            <div className="dropdown-section-title" style={{
+                              padding: "6px 12px",
+                              fontSize: "11px",
+                              fontWeight: "bold",
+                              color: "var(--primary)",
+                              background: "#f0f9ff",
+                              borderBottom: "1px solid #e0f2fe",
+                              borderTop: recentModels.length > 0 ? "1px solid var(--border-color)" : "none"
+                            }}>
+                              DANH SÁCH MODEL TỪ API
+                            </div>
+                            {availableModels.map((m, idx) => {
+                              if (recentModels.includes(m)) return null;
+                              return (
+                                <div 
+                                  key={`avail-${idx}`} 
+                                  className="dropdown-item"
+                                  onClick={() => { setModelName(m); setShowDropdown(false); }}
+                                  style={{
+                                    padding: "8px 12px",
+                                    cursor: "pointer",
+                                    fontSize: "13px",
+                                    color: "var(--text-main)",
+                                    borderBottom: "1px solid #f1f5f9"
+                                  }}
+                                >
+                                  {m}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {recentModels.length === 0 && availableModels.length === 0 && (
+                          <div style={{ padding: "12px", fontSize: "13px", color: "var(--text-muted)", textAlign: "center" }}>
+                            Không tìm thấy model nào. Hãy nhập tay.
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="form-group">

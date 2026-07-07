@@ -10,6 +10,10 @@ export function ExitApp() {
   return window['go']['main']['App']['ExitApp']();
 }
 
+export function FetchAvailableModels() {
+  return window['go']['main']['App']['FetchAvailableModels']();
+}
+
 export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
@@ -20,6 +24,10 @@ export function GetHistory() {
 
 export function LoadConfig() {
   return window['go']['main']['App']['LoadConfig']();
+}
+
+export function RemoveRecentModel(arg1) {
+  return window['go']['main']['App']['RemoveRecentModel'](arg1);
 }
 
 export function SaveCalibration(arg1, arg2, arg3, arg4) {

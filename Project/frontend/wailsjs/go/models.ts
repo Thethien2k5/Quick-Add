@@ -14,6 +14,7 @@ export namespace main {
 	    window_height: number;
 	    window_x: number;
 	    window_y: number;
+	    recent_models: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -34,6 +35,7 @@ export namespace main {
 	        this.window_height = source["window_height"];
 	        this.window_x = source["window_x"];
 	        this.window_y = source["window_y"];
+	        this.recent_models = source["recent_models"];
 	    }
 	}
 	export class HistoryEntry {

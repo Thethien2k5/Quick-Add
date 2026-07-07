@@ -23,6 +23,9 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+//go:embed build/appicon.png
+var appIconBytes []byte
+
 var (
 	user32             = syscall.NewLazyDLL("user32.dll")
 	kernel32           = syscall.NewLazyDLL("kernel32.dll")
@@ -68,9 +71,8 @@ func checkSingleInstance() (uintptr, error) {
 	if err != nil {
 		return 0, err
 	}
-	hMutex, _, _ := createMutex.Call(0, 1, uintptr(unsafe.Pointer(namePtr)))
-	ret, _, _ := getLastError.Call()
-	if ret == ERROR_ALREADY_EXISTS {
+	hMutex, _, errMutex := createMutex.Call(0, 0, uintptr(unsafe.Pointer(namePtr)))
+	if errMutex != nil && errMutex.(syscall.Errno) == ERROR_ALREADY_EXISTS {
 		return 0, fmt.Errorf("instance already running")
 	}
 	return hMutex, nil
@@ -204,9 +206,8 @@ func registerGlobalHotkey(hotkeyStr string, app *App) {
 
 func setupSystray(app *App) {
 	go systray.Run(func() {
-		iconBytes := getIconBytes()
-		if iconBytes != nil {
-			systray.SetIcon(iconBytes)
+		if len(appIconBytes) > 0 {
+			systray.SetIcon(appIconBytes)
 		}
 		systray.SetTooltip("Quick-Add AI Helper")
 
@@ -239,11 +240,17 @@ func setupSystray(app *App) {
 
 func main() {
 	// 1. Single Instance Check
-	_, err := checkSingleInstance()
+	hMutex, err := checkSingleInstance()
 	if err != nil {
 		fmt.Printf("Ứng dụng đang được chạy ngầm. Không khởi tạo bản mới.\n")
 		os.Exit(0)
 	}
+	defer func() {
+		// Keep reference to mutex handle to keep it alive for process duration
+		if hMutex != 0 {
+			_ = hMutex
+		}
+	}()
 
 	// 2. Create app instance
 	app := NewApp()

@@ -17,6 +17,7 @@ import (
 
 	"github.com/kbinani/screenshot"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"syscall"
 )
 
 // Config represents application settings
@@ -32,8 +33,9 @@ type Config struct {
 	Prompt       string `json:"prompt"`
 	WindowWidth  int    `json:"window_width"`
 	WindowHeight int    `json:"window_height"`
-	WindowX      int    `json:"window_x"`
-	WindowY      int    `json:"window_y"`
+	WindowX      int      `json:"window_x"`
+	WindowY      int      `json:"window_y"`
+	RecentModels []string `json:"recent_models"`
 }
 
 // HistoryEntry represents a past AI result
@@ -63,6 +65,43 @@ func writeLog(format string, args ...interface{}) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	msg := fmt.Sprintf(format, args...)
 	f.WriteString(fmt.Sprintf("[%s] %s\n", timestamp, msg))
+}
+
+var (
+	user32DLL         = syscall.NewLazyDLL("user32.dll")
+	gdi32DLL          = syscall.NewLazyDLL("gdi32.dll")
+	getDpiForSystem   = user32DLL.NewProc("GetDpiForSystem")
+	getDCProc         = user32DLL.NewProc("GetDC")
+	releaseDCProc     = user32DLL.NewProc("ReleaseDC")
+	getDeviceCapsProc = gdi32DLL.NewProc("GetDeviceCaps")
+)
+
+const (
+	logPixelsX = 88
+)
+
+func getDpiScale() float64 {
+	// Try GetDpiForSystem (Windows 10+)
+	if err := getDpiForSystem.Find(); err == nil {
+		dpi, _, _ := getDpiForSystem.Call()
+		if dpi > 0 {
+			return float64(dpi) / 96.0
+		}
+	}
+	// Fallback to GetDeviceCaps
+	if err := getDCProc.Find(); err == nil {
+		if err := getDeviceCapsProc.Find(); err == nil {
+			hdc, _, _ := getDCProc.Call(0)
+			if hdc != 0 {
+				defer releaseDCProc.Call(0, hdc)
+				dpiX, _, _ := getDeviceCapsProc.Call(hdc, logPixelsX)
+				if dpiX > 0 {
+					return float64(dpiX) / 96.0
+				}
+			}
+		}
+	}
+	return 1.0
 }
 
 // NewApp creates a new App application struct
@@ -123,7 +162,7 @@ func (a *App) LoadConfig() Config {
 			APIProvider:  "openai",
 			APIURL:       "http://localhost:20127/v1",
 			APIKey:       "123456789",
-			ModelName:    "main-combo",
+			ModelName:    "gc/gemini-2.5-flash",
 			MaxTokens:    2048,
 			FontSize:     14,
 			Hotkey:       "Ctrl+C",
@@ -133,6 +172,7 @@ func (a *App) LoadConfig() Config {
 			WindowHeight: 550,
 			WindowX:      100,
 			WindowY:      100,
+			RecentModels: []string{"gc/gemini-2.5-flash", "gemini/gemini-2.5-flash", "main-combo"},
 		}
 		a.SaveConfig(a.config)
 	} else {
@@ -140,6 +180,9 @@ func (a *App) LoadConfig() Config {
 		if err == nil {
 			var cfg Config
 			if err := json.Unmarshal(data, &cfg); err == nil {
+				if len(cfg.RecentModels) == 0 {
+					cfg.RecentModels = []string{"gc/gemini-2.5-flash", "gemini/gemini-2.5-flash", "main-combo"}
+				}
 				a.config = cfg
 			}
 		}
@@ -149,6 +192,20 @@ func (a *App) LoadConfig() Config {
 
 // SaveConfig saves configuration to file
 func (a *App) SaveConfig(cfg Config) bool {
+	if cfg.ModelName != "" {
+		// Move current model to the front of recent models list
+		updatedRecent := []string{cfg.ModelName}
+		for _, m := range cfg.RecentModels {
+			if m != cfg.ModelName && m != "" {
+				updatedRecent = append(updatedRecent, m)
+			}
+		}
+		if len(updatedRecent) > 15 {
+			updatedRecent = updatedRecent[:15]
+		}
+		cfg.RecentModels = updatedRecent
+	}
+
 	a.config = cfg
 	path := getConfigPath()
 	
@@ -180,23 +237,32 @@ func (a *App) TriggerCapture() {
 	// Sleep briefly to ensure window is hidden
 	time.Sleep(100 * time.Millisecond)
 
-	// Get total virtual screen bounds (covering all monitors)
-	bounds := image.Rect(0, 0, 0, 0)
-	for i := 0; i < screenshot.NumActiveDisplays(); i++ {
-		bounds = bounds.Union(screenshot.GetDisplayBounds(i))
-	}
+	// Get primary display bounds only (as requested by the user)
+	bounds := screenshot.GetDisplayBounds(0)
+
+	scale := getDpiScale()
+	writeLog("TriggerCapture: physical bounds=%v, scale=%f", bounds, scale)
 
 	// Emit start crop event to Frontend
-	runtime.EventsEmit(a.ctx, "start-crop", map[string]int{
-		"x": bounds.Min.X,
-		"y": bounds.Min.Y,
-		"w": bounds.Dx(),
-		"h": bounds.Dy(),
+	runtime.EventsEmit(a.ctx, "start-crop", map[string]interface{}{
+		"x":     bounds.Min.X,
+		"y":     bounds.Min.Y,
+		"w":     bounds.Dx(),
+		"h":     bounds.Dy(),
+		"scale": scale,
 	})
 
+	// Convert physical coordinates to logical coordinates for Wails
+	logicalX := int(float64(bounds.Min.X) / scale)
+	logicalY := int(float64(bounds.Min.Y) / scale)
+	logicalW := int(float64(bounds.Dx()) / scale)
+	logicalH := int(float64(bounds.Dy()) / scale)
+
+	writeLog("TriggerCapture: logical bounds x=%d, y=%d, w=%d, h=%d", logicalX, logicalY, logicalW, logicalH)
+
 	// Make window fullscreen, and position it to cover all monitors
-	runtime.WindowSetPosition(a.ctx, bounds.Min.X, bounds.Min.Y)
-	runtime.WindowSetSize(a.ctx, bounds.Dx(), bounds.Dy())
+	runtime.WindowSetPosition(a.ctx, logicalX, logicalY)
+	runtime.WindowSetSize(a.ctx, logicalW, logicalH)
 	runtime.WindowShow(a.ctx)
 }
 
@@ -269,20 +335,28 @@ func (a *App) restoreMainWindow(show bool) {
 		bounds = bounds.Union(screenshot.GetDisplayBounds(i))
 	}
 
+	scale := getDpiScale()
 	x := a.config.WindowX
 	y := a.config.WindowY
 	w := a.config.WindowWidth
 	h := a.config.WindowHeight
 
 	// Validate if the window is inside the virtual screen bounds.
-	if x < bounds.Min.X || x > bounds.Max.X-50 || y < bounds.Min.Y || y > bounds.Max.Y-50 {
-		// Reset to default/center of primary monitor
+	// Since bounds is physical, we multiply logical x, y by scale factor to validate.
+	physicalX := int(float64(x) * scale)
+	physicalY := int(float64(y) * scale)
+
+	if physicalX < bounds.Min.X || physicalX > bounds.Max.X-50 || physicalY < bounds.Min.Y || physicalY > bounds.Max.Y-50 {
+		// Reset to default/center of primary monitor in logical pixels
 		primaryBounds := screenshot.GetDisplayBounds(0)
-		x = primaryBounds.Min.X + (primaryBounds.Dx()-w)/2
-		y = primaryBounds.Min.Y + (primaryBounds.Dy()-h)/2
-		writeLog("restoreMainWindow: Window position (%d, %d) was off-screen. Resetting to (%d, %d)", a.config.WindowX, a.config.WindowY, x, y)
+		logicalPrimaryW := int(float64(primaryBounds.Dx()) / scale)
+		logicalPrimaryH := int(float64(primaryBounds.Dy()) / scale)
+
+		x = int(float64(primaryBounds.Min.X)/scale) + (logicalPrimaryW-w)/2
+		y = int(float64(primaryBounds.Min.Y)/scale) + (logicalPrimaryH-h)/2
+		writeLog("restoreMainWindow: Window position (%d, %d) was off-screen. Resetting to (%d, %d) logical", a.config.WindowX, a.config.WindowY, x, y)
 	} else {
-		writeLog("restoreMainWindow: Position (%d, %d) is valid within bounds: Min=(%d, %d) Max=(%d, %d)", x, y, bounds.Min.X, bounds.Min.Y, bounds.Max.X, bounds.Max.Y)
+		writeLog("restoreMainWindow: Position (%d, %d) is valid (physical X=%d, Y=%d) within bounds: Min=(%d, %d) Max=(%d, %d)", x, y, physicalX, physicalY, bounds.Min.X, bounds.Min.Y, bounds.Max.X, bounds.Max.Y)
 	}
 
 	runtime.WindowSetSize(a.ctx, w, h)
@@ -517,4 +591,93 @@ func (a *App) sendToAI(imgBytes []byte) (string, error) {
 // ExitApp closes the application
 func (a *App) ExitApp() {
 	runtime.Quit(a.ctx)
+}
+
+// RemoveRecentModel removes a model from the recent models list and saves the config
+func (a *App) RemoveRecentModel(model string) Config {
+	var updated []string
+	for _, m := range a.config.RecentModels {
+		if m != model && m != "" {
+			updated = append(updated, m)
+		}
+	}
+	a.config.RecentModels = updated
+	a.SaveConfig(a.config)
+	return a.config
+}
+
+// FetchAvailableModels queries the configured endpoint for available models
+func (a *App) FetchAvailableModels() []string {
+	writeLog("FetchAvailableModels: provider=%s, url=%s", a.config.APIProvider, a.config.APIURL)
+	if a.config.APIProvider == "gemini" {
+		return []string{"gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"}
+	}
+
+	// Prepare models URL
+	reqUrl := a.config.APIURL
+	if strings.HasSuffix(reqUrl, "/chat/completions") {
+		reqUrl = strings.TrimSuffix(reqUrl, "/chat/completions")
+	}
+	if strings.HasSuffix(reqUrl, "/") {
+		reqUrl += "models"
+	} else {
+		reqUrl += "/models"
+	}
+
+	writeLog("FetchAvailableModels: requesting %s", reqUrl)
+	req, err := http.NewRequest("GET", reqUrl, nil)
+	if err != nil {
+		writeLog("FetchAvailableModels: request creation error: %v", err)
+		return []string{}
+	}
+
+	if a.config.APIKey != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", a.config.APIKey))
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		writeLog("FetchAvailableModels: request failed: %v", err)
+		return []string{}
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		writeLog("FetchAvailableModels: read body error: %v", err)
+		return []string{}
+	}
+
+	if resp.StatusCode != 200 {
+		writeLog("FetchAvailableModels: status code %d, body: %s", resp.StatusCode, string(respBytes))
+		return []string{}
+	}
+
+	var parsed struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(respBytes, &parsed); err != nil {
+		// Try parsing alternative structure (sometimes models are returned as simple array)
+		var simpleList []string
+		if err2 := json.Unmarshal(respBytes, &simpleList); err2 == nil {
+			writeLog("FetchAvailableModels: parsed simple list of %d models", len(simpleList))
+			return simpleList
+		}
+		writeLog("FetchAvailableModels: json unmarshal error: %v", err)
+		return []string{}
+	}
+
+	var models []string
+	for _, m := range parsed.Data {
+		if m.ID != "" {
+			models = append(models, m.ID)
+		}
+	}
+
+	writeLog("FetchAvailableModels: successfully fetched %d models", len(models))
+	return models
 }
