@@ -49,15 +49,20 @@ body {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background-color: rgba(0, 0, 0, 0.03); /* extremely subtle tint */
+  background-color: rgba(255, 255, 255, 0.25); /* light white/gray tint before selection */
   cursor: crosshair;
   z-index: 9999;
+  transition: background-color 0.1s ease;
+}
+
+.overlay-container.has-selection {
+  background-color: transparent; /* make overlay container transparent so the crop area is clear */
 }
 
 .crop-rect {
   position: absolute;
   border: 1.5px dashed #ffffff;
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.12); /* very light dim outside crop area */
+  box-shadow: 0 0 0 9999px rgba(255, 255, 255, 0.25); /* light white/gray tint outside crop area */
   pointer-events: none;
 }
 

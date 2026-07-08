@@ -318,7 +318,7 @@ function App() {
       {/* 1. OVERLAY SELECTION VIEW */}
       {view === "overlay" && (
         <div 
-          className="overlay-container" 
+          className={`overlay-container ${crop.w > 0 && crop.h > 0 ? 'has-selection' : ''}`}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}

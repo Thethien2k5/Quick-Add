@@ -256,6 +256,7 @@ func main() {
 	app := NewApp()
 
 	// 3. Setup System Tray
+	appIconBytes = getIconBytes()
 	setupSystray(app)
 
 	// 4. Setup Windows Taskbar Hide
