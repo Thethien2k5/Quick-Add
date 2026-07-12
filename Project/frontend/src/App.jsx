@@ -1,8 +1,24 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import { GetConfig, SaveConfig, CaptureAndProcess, GetHistory, SaveCalibration, RemoveRecentModel, FetchAvailableModels } from "../wailsjs/go/main/App";
 
 function App() {
+  // Polyfill window.runtime for non-Wails environments (Fix #4: issue #20)
+  if (!window.runtime) {
+    window.runtime = {
+      EventsOn: () => () => {},
+      EventsOff: () => {},
+      WindowHide: () => {},
+      WindowShow: () => {},
+      WindowSetSize: () => {},
+      WindowSetPosition: () => {},
+      WindowGetPosition: () => Promise.resolve({x:0, y:0}),
+      WindowGetSize: () => Promise.resolve({w:400, h:550}),
+      WindowCenter: () => {},
+      WindowSetFrameless: () => {},
+    };
+  }
+
   const [view, setView] = useState("results"); // 'overlay' | 'settings' | 'results'
   const [config, setConfig] = useState(null);
   const [history, setHistory] = useState([]);
@@ -24,9 +40,8 @@ function App() {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   
   // Form Settings States
-  const [apiProvider, setApiProvider] = useState("openai");
   const [apiUrl, setApiUrl] = useState("http://localhost:20127/v1");
-  const [apiKey, setApiKey] = useState("123456789");
+  const [apiKey, setApiKey] = useState("");
   const [modelName, setModelName] = useState("main-combo");
   const [maxTokens, setMaxTokens] = useState(2048);
   const [fontSize, setFontSize] = useState(14);
@@ -35,13 +50,13 @@ function App() {
   const [promptText, setPromptText] = useState("");
 
   const containerRef = useRef(null);
+  const fetchTimerRef = useRef(null);
 
   // Load configuration and history
   const loadConfiguration = async () => {
     try {
       const cfg = await GetConfig();
       setConfig(cfg);
-      setApiProvider(cfg.api_provider || "openai");
       setApiUrl(cfg.api_url || "");
       setApiKey(cfg.api_key || "");
       setModelName(cfg.model_name || "");
@@ -79,9 +94,15 @@ function App() {
 
   useEffect(() => {
     if (view === "settings") {
-      fetchModels();
+      if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current);
+      fetchTimerRef.current = setTimeout(() => {
+        fetchModels();
+      }, 800);
     }
-  }, [view, apiProvider, apiUrl, apiKey]);
+    return () => {
+      if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current);
+    };
+  }, [view, apiUrl, apiKey]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -232,7 +253,7 @@ function App() {
     e.preventDefault();
     const updated = {
       ...config,
-      api_provider: apiProvider,
+      api_provider: "openai",
       api_url: apiUrl,
       api_key: apiKey,
       model_name: modelName,
@@ -386,25 +407,13 @@ function App() {
               {activeTab === "api" ? (
                 <div role="tabpanel" aria-labelledby="tab-api">
                   <div className="form-group">
-                    <label htmlFor="api-provider">Nhà Cung Cấp API</label>
-                    <select 
-                      id="api-provider" 
-                      value={apiProvider} 
-                      onChange={(e) => setApiProvider(e.target.value)}
-                    >
-                      <option value="openai">OpenAI Compatible (Ollama, 9router, Local)</option>
-                      <option value="gemini">Google Gemini (AI Studio)</option>
-                    </select>
-                  </div>
-                  
-                  <div className="form-group">
                     <label htmlFor="api-url">Địa chỉ IP / URL API</label>
                     <input 
                       type="text" 
                       id="api-url" 
                       value={apiUrl} 
                       onChange={(e) => setApiUrl(e.target.value)} 
-                      placeholder={apiProvider === "gemini" ? "Mặc định: https://generativelanguage.googleapis.com" : "Ví dụ: http://localhost:20127/v1"}
+                      placeholder="Ví dụ: http://localhost:20127/v1"
                     />
                   </div>
 
@@ -427,7 +436,7 @@ function App() {
                         id="model-name" 
                         value={modelName} 
                         onChange={(e) => setModelName(e.target.value)} 
-                        placeholder={apiProvider === "gemini" ? "Ví dụ: gemini-1.5-flash" : "Ví dụ: main-combo"}
+                        placeholder="Ví dụ: main-combo"
                         style={{ paddingRight: "40px", flex: 1 }}
                       />
                       <button 
@@ -454,50 +463,21 @@ function App() {
                     </div>
 
                     {showDropdown && (
-                      <div className="model-dropdown-menu" style={{
-                        position: "absolute",
-                        top: "100%",
-                        left: 0,
-                        right: 0,
-                        maxHeight: "220px",
-                        overflowY: "auto",
-                        background: "#ffffff",
-                        border: "1px solid var(--border-color)",
-                        borderRadius: "8px",
-                        boxShadow: "var(--shadow-lg)",
-                        zIndex: 1000,
-                        marginTop: "4px"
-                      }}>
+                      <div className="model-dropdown-menu">
                         {/* 1. Recent Models */}
                         {recentModels.length > 0 && (
                           <div className="dropdown-section">
-                            <div className="dropdown-section-title" style={{
-                              padding: "6px 12px",
-                              fontSize: "11px",
-                              fontWeight: "bold",
-                              color: "var(--accent-pink)",
-                              background: "#fff1f2",
-                              borderBottom: "1px solid #ffe4e6"
-                            }}>
+                            <div className="dropdown-section-title recent">
                               MODEL ĐÃ DÙNG GẦN ĐÂY
                             </div>
                             {recentModels.map((m, idx) => (
                               <div 
                                 key={`recent-${idx}`} 
                                 className="dropdown-item"
-                                style={{
-                                  display: "flex",
-                                  justifyContent: "space-between",
-                                  alignItems: "center",
-                                  padding: "8px 12px",
-                                  cursor: "pointer",
-                                  fontSize: "13px",
-                                  borderBottom: "1px solid #f1f5f9"
-                                }}
                               >
                                 <span 
+                                  className="model-name"
                                   onClick={() => { setModelName(m); setShowDropdown(false); }}
-                                  style={{ flex: 1, color: "var(--text-main)", fontWeight: "500" }}
                                 >
                                   {m}
                                 </span>
@@ -515,14 +495,7 @@ function App() {
                                     setConfig(updatedCfg);
                                     setRecentModels(updatedCfg.recent_models || []);
                                   }}
-                                  style={{
-                                    background: "none",
-                                    border: "none",
-                                    cursor: "pointer",
-                                    color: "var(--text-muted)",
-                                    fontSize: "14px",
-                                    padding: "2px 6px"
-                                  }}
+                                  className="remove-btn"
                                   title="Xóa khỏi danh sách"
                                 >
                                   &times;
@@ -535,15 +508,9 @@ function App() {
                         {/* 2. Available Models */}
                         {availableModels.length > 0 && (
                           <div className="dropdown-section">
-                            <div className="dropdown-section-title" style={{
-                              padding: "6px 12px",
-                              fontSize: "11px",
-                              fontWeight: "bold",
-                              color: "var(--primary)",
-                              background: "#f0f9ff",
-                              borderBottom: "1px solid #e0f2fe",
-                              borderTop: recentModels.length > 0 ? "1px solid var(--border-color)" : "none"
-                            }}>
+                            <div className="dropdown-section-title available"
+                              style={recentModels.length > 0 ? { borderTop: "1px solid var(--border-color)" } : undefined}
+                            >
                               DANH SÁCH MODEL TỪ API
                             </div>
                             {availableModels.map((m, idx) => {
@@ -553,13 +520,6 @@ function App() {
                                   key={`avail-${idx}`} 
                                   className="dropdown-item"
                                   onClick={() => { setModelName(m); setShowDropdown(false); }}
-                                  style={{
-                                    padding: "8px 12px",
-                                    cursor: "pointer",
-                                    fontSize: "13px",
-                                    color: "var(--text-main)",
-                                    borderBottom: "1px solid #f1f5f9"
-                                  }}
                                 >
                                   {m}
                                 </div>
@@ -569,7 +529,7 @@ function App() {
                         )}
 
                         {recentModels.length === 0 && availableModels.length === 0 && (
-                          <div style={{ padding: "12px", fontSize: "13px", color: "var(--text-muted)", textAlign: "center" }}>
+                          <div className="dropdown-empty">
                             Không tìm thấy model nào. Hãy nhập tay.
                           </div>
                         )}
@@ -760,4 +720,31 @@ function App() {
   );
 }
 
-export default App;
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error('App Error:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{padding:'24px',textAlign:'center',fontFamily:'sans-serif'}}>
+          <h2>Đã xảy ra lỗi</h2>
+          <p style={{color:'#666',margin:'12px 0'}}>{this.state.error?.message}</p>
+          <button onClick={() => this.setState({hasError:false,error:null})} style={{padding:'8px 20px',cursor:'pointer'}}>Thử lại</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export default function WrappedApp() {
+  return <ErrorBoundary><App /></ErrorBoundary>;
+}

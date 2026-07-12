@@ -424,3 +424,81 @@ body {
   background: linear-gradient(135deg, transparent 50%, var(--accent-pink) 50%);
   z-index: 20;
 }
+
+/* ==========================================
+   DROPDOWN MENU (Fix #6 / #8 - moved from inline styles)
+   ========================================== */
+.model-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  margin-top: 4px;
+}
+
+.dropdown-section-title {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: bold;
+  border-bottom: 1px solid #ffe4e6;
+}
+
+.dropdown-section-title.recent {
+  color: var(--accent-pink);
+  background: #fff1f2;
+}
+
+.dropdown-section-title.available {
+  color: var(--primary);
+  background: #f0f9ff;
+  border-bottom-color: #e0f2fe;
+}
+
+.dropdown-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 1px solid #f1f5f9;
+  transition: background-color 0.15s ease;
+}
+
+.dropdown-item:hover {
+  background-color: #f8fafc;
+}
+
+.dropdown-item .model-name {
+  flex: 1;
+  color: var(--text-main);
+  font-weight: 500;
+}
+
+.dropdown-item .remove-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 14px;
+  padding: 2px 6px;
+  transition: color 0.15s ease;
+}
+
+.dropdown-item .remove-btn:hover {
+  color: var(--accent-pink);
+}
+
+.dropdown-empty {
+  padding: 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+}

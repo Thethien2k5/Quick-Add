@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kbinani/screenshot"
@@ -48,6 +49,7 @@ type HistoryEntry struct {
 type App struct {
 	ctx          context.Context
 	config       Config
+	configMu     sync.RWMutex
 	isCapturing  bool
 }
 
@@ -150,6 +152,9 @@ func (a *App) GetConfig() Config {
 
 // LoadConfig loads configuration from file
 func (a *App) LoadConfig() Config {
+	a.configMu.Lock()
+	defer a.configMu.Unlock()
+
 	path := getConfigPath()
 	
 	// Create default directory if it doesn't exist
@@ -161,7 +166,7 @@ func (a *App) LoadConfig() Config {
 		a.config = Config{
 			APIProvider:  "openai",
 			APIURL:       "http://localhost:20127/v1",
-			APIKey:       "123456789",
+			APIKey:       "",
 			ModelName:    "gc/gemini-2.5-flash",
 			MaxTokens:    2048,
 			FontSize:     14,
@@ -192,6 +197,9 @@ func (a *App) LoadConfig() Config {
 
 // SaveConfig saves configuration to file
 func (a *App) SaveConfig(cfg Config) bool {
+	a.configMu.Lock()
+	defer a.configMu.Unlock()
+
 	if cfg.ModelName != "" {
 		// Move current model to the front of recent models list
 		updatedRecent := []string{cfg.ModelName}
@@ -313,7 +321,10 @@ func (a *App) CaptureAndProcess(x, y, w, h int) string {
 		} else {
 			writeLog("CaptureAndProcess AI success, saving result")
 			// Save to daily history
-			a.saveResult(result)
+			if err := a.saveResult(result); err != nil {
+				writeLog("CaptureAndProcess: saveResult error: %v", err)
+				result = result + "\n\n⚠️ Lưu ý: Không thể lưu kết quả vào lịch sử."
+			}
 		}
 
 		// Send result to frontend
@@ -429,6 +440,8 @@ func (a *App) saveResult(text string) error {
 	fileName := fmt.Sprintf("%02d-%02d-%d.txt", now.Day(), now.Month(), now.Year())
 	filePath := filepath.Join(getSaveDir(), fileName)
 
+	text = strings.ReplaceAll(text, "=========================================", "═════════════════════════════════════════")
+
 	entry := fmt.Sprintf("=========================================\n[Thời gian: %02d:%02d:%02d]\n-----------------------------------------\n%s\n\n",
 		now.Hour(), now.Minute(), now.Second(), text)
 
@@ -442,73 +455,52 @@ func (a *App) saveResult(text string) error {
 	return err
 }
 
-// sendToAI performs the API call to Gemini or OpenAI-compatible proxy
+// sendToAI performs the API call to OpenAI-compatible proxy (Local)
 func (a *App) sendToAI(imgBytes []byte) (string, error) {
-	writeLog("sendToAI: APIProvider=%s, APIURL=%s, ModelName=%s, KeyLen=%d", a.config.APIProvider, a.config.APIURL, a.config.ModelName, len(a.config.APIKey))
-	base64Img := base64.StdEncoding.EncodeToString(imgBytes)
+	a.configMu.RLock()
+	cfg := a.config
+	a.configMu.RUnlock()
 
-	var reqUrl string
-	var reqBody []byte
-	var err error
+	writeLog("sendToAI: APIURL=%s, ModelName=%s, HasKey=%v", cfg.APIURL, cfg.ModelName, cfg.APIKey != "")
 
-	if a.config.APIProvider == "gemini" {
-		url := a.config.APIURL
-		if url == "" {
-			url = "https://generativelanguage.googleapis.com"
-		}
-		reqUrl = fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", url, a.config.ModelName, a.config.APIKey)
-
-		body := map[string]interface{}{
-			"contents": []map[string]interface{}{
-				{
-					"parts": []map[string]interface{}{
-						{"text": a.config.Prompt},
-						{
-							"inlineData": map[string]string{
-								"mimeType": "image/png",
-								"data":     base64Img,
-							},
-						},
-					},
-				},
-			},
-		}
-		reqBody, err = json.Marshal(body)
-	} else {
-		reqUrl = a.config.APIURL
-		if !strings.HasSuffix(reqUrl, "/chat/completions") {
-			if strings.HasSuffix(reqUrl, "/") {
-				reqUrl += "chat/completions"
-			} else {
-				reqUrl += "/chat/completions"
-			}
-		}
-
-		body := map[string]interface{}{
-			"model": a.config.ModelName,
-			"messages": []map[string]interface{}{
-				{
-					"role": "user",
-					"content": []map[string]interface{}{
-						{
-							"type": "text",
-							"text": a.config.Prompt,
-						},
-						{
-							"type": "image_url",
-							"image_url": map[string]string{
-								"url": fmt.Sprintf("data:image/png;base64,%s", base64Img),
-							},
-						},
-					},
-				},
-			},
-			"max_tokens": a.config.MaxTokens,
-			"stream":     false,
-		}
-		reqBody, err = json.Marshal(body)
+	if cfg.APIURL == "" {
+		return "", fmt.Errorf("URL API chưa được cấu hình")
 	}
 
+	base64Img := base64.StdEncoding.EncodeToString(imgBytes)
+
+	reqUrl := cfg.APIURL
+	if !strings.HasSuffix(reqUrl, "/chat/completions") {
+		if strings.HasSuffix(reqUrl, "/") {
+			reqUrl += "chat/completions"
+		} else {
+			reqUrl += "/chat/completions"
+		}
+	}
+
+	body := map[string]interface{}{
+		"model": cfg.ModelName,
+		"messages": []map[string]interface{}{
+			{
+				"role": "user",
+				"content": []map[string]interface{}{
+					{
+						"type": "text",
+						"text": cfg.Prompt,
+					},
+					{
+						"type": "image_url",
+						"image_url": map[string]string{
+							"url": fmt.Sprintf("data:image/png;base64,%s", base64Img),
+						},
+					},
+				},
+			},
+		},
+		"max_tokens": cfg.MaxTokens,
+		"stream":     false,
+	}
+	reqBody, err := json.Marshal(body)
 	if err != nil {
 		writeLog("sendToAI: marshal body error: %v", err)
 		return "", err
@@ -521,11 +513,11 @@ func (a *App) sendToAI(imgBytes []byte) (string, error) {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if a.config.APIProvider != "gemini" && a.config.APIKey != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", a.config.APIKey))
+	if cfg.APIKey != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cfg.APIKey))
 	}
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: 120 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		writeLog("sendToAI: client Do error: %v", err)
@@ -546,42 +538,21 @@ func (a *App) sendToAI(imgBytes []byte) (string, error) {
 		return "", fmt.Errorf("API error (%d): %s", resp.StatusCode, string(respBytes))
 	}
 
-	if a.config.APIProvider == "gemini" {
-		var geminiResp struct {
-			Candidates []struct {
-				Content struct {
-					Parts []struct {
-						Text string `json:"text"`
-					} `json:"parts"`
-				} `json:"content"`
-			} `json:"candidates"`
-		}
-		if err := json.Unmarshal(respBytes, &geminiResp); err != nil {
-			writeLog("sendToAI: gemini unmarshal error: %v", err)
-			return "", err
-		}
-		if len(geminiResp.Candidates) > 0 && len(geminiResp.Candidates[0].Content.Parts) > 0 {
-			resText := geminiResp.Candidates[0].Content.Parts[0].Text
-			writeLog("sendToAI success: %s", resText)
-			return resText, nil
-		}
-	} else {
-		var openAIResp struct {
-			Choices []struct {
-				Message struct {
-					Content string `json:"content"`
-				} `json:"message"`
-			} `json:"choices"`
-		}
-		if err := json.Unmarshal(respBytes, &openAIResp); err != nil {
-			writeLog("sendToAI: openai unmarshal error: %v", err)
-			return "", err
-		}
-		if len(openAIResp.Choices) > 0 {
-			resText := openAIResp.Choices[0].Message.Content
-			writeLog("sendToAI success: %s", resText)
-			return resText, nil
-		}
+	var openAIResp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBytes, &openAIResp); err != nil {
+		writeLog("sendToAI: unmarshal error: %v", err)
+		return "", err
+	}
+	if len(openAIResp.Choices) > 0 {
+		resText := openAIResp.Choices[0].Message.Content
+		writeLog("sendToAI success: %s", resText)
+		return resText, nil
 	}
 
 	writeLog("sendToAI: no valid response content received")
@@ -595,6 +566,9 @@ func (a *App) ExitApp() {
 
 // RemoveRecentModel removes a model from the recent models list and saves the config
 func (a *App) RemoveRecentModel(model string) Config {
+	a.configMu.Lock()
+	defer a.configMu.Unlock()
+
 	trimmedModel := strings.TrimSpace(model)
 	writeLog("RemoveRecentModel: requested to remove '%s' (trimmed: '%s')", model, trimmedModel)
 	writeLog("RemoveRecentModel: current recent list: %v", a.config.RecentModels)
@@ -608,20 +582,24 @@ func (a *App) RemoveRecentModel(model string) Config {
 	}
 	a.config.RecentModels = updated
 	writeLog("RemoveRecentModel: updated recent list before save: %v", a.config.RecentModels)
-	a.SaveConfig(a.config)
+	data, err := json.MarshalIndent(a.config, "", "  ")
+	if err == nil {
+		os.WriteFile(getConfigPath(), data, 0644)
+	}
 	writeLog("RemoveRecentModel: updated recent list after save: %v", a.config.RecentModels)
 	return a.config
 }
 
 // FetchAvailableModels queries the configured endpoint for available models
 func (a *App) FetchAvailableModels() []string {
-	writeLog("FetchAvailableModels: provider=%s, url=%s", a.config.APIProvider, a.config.APIURL)
-	if a.config.APIProvider == "gemini" {
-		return []string{"gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"}
-	}
+	a.configMu.RLock()
+	cfg := a.config
+	a.configMu.RUnlock()
+
+	writeLog("FetchAvailableModels: url=%s", cfg.APIURL)
 
 	// Prepare models URL
-	reqUrl := a.config.APIURL
+	reqUrl := cfg.APIURL
 	if strings.HasSuffix(reqUrl, "/chat/completions") {
 		reqUrl = strings.TrimSuffix(reqUrl, "/chat/completions")
 	}
@@ -638,8 +616,8 @@ func (a *App) FetchAvailableModels() []string {
 		return []string{}
 	}
 
-	if a.config.APIKey != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", a.config.APIKey))
+	if cfg.APIKey != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cfg.APIKey))
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}

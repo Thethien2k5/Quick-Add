@@ -149,6 +149,20 @@ func parseHotkey(hotkeyStr string) (uint32, uint32) {
 					vk = 0x09 // VK_TAB
 				case "escape", "esc":
 					vk = 0x1B // VK_ESCAPE
+				case "delete", "del":
+					vk = 0x2E
+				case "insert", "ins":
+					vk = 0x2D
+				case "home":
+					vk = 0x24
+				case "end":
+					vk = 0x23
+				case "pageup", "pgup":
+					vk = 0x21
+				case "pagedown", "pgdn":
+					vk = 0x22
+				case "backspace", "back":
+					vk = 0x08
 				}
 				if strings.HasPrefix(part, "f") && len(part) > 1 {
 					var fNum int
@@ -163,18 +177,33 @@ func parseHotkey(hotkeyStr string) (uint32, uint32) {
 	return mods, vk
 }
 
+var hotkeyStopCh chan struct{}
+
 func registerGlobalHotkey(hotkeyStr string, app *App) {
 	mods, vk := parseHotkey(hotkeyStr)
 	if vk == 0 {
+		writeLog("registerGlobalHotkey: invalid hotkey '%s', vk=0", hotkeyStr)
 		return
 	}
 
+	// Stop previous hotkey thread
 	if currentHotkeyThreadId != 0 {
 		postThreadMessage.Call(uintptr(currentHotkeyThreadId), WM_UPDATE_HOTKEY, 0, 0)
-		time.Sleep(50 * time.Millisecond)
+		// Wait for the old thread to actually finish
+		if hotkeyStopCh != nil {
+			select {
+			case <-hotkeyStopCh:
+			case <-time.After(500 * time.Millisecond):
+				writeLog("registerGlobalHotkey: timeout waiting for old thread")
+			}
+		}
 	}
 
+	doneCh := make(chan struct{})
+	hotkeyStopCh = doneCh
+
 	go func() {
+		defer close(doneCh)
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 
@@ -183,8 +212,10 @@ func registerGlobalHotkey(hotkeyStr string, app *App) {
 
 		ret, _, _ := registerHotKey.Call(0, 1, uintptr(mods), uintptr(vk))
 		if ret == 0 {
+			writeLog("registerGlobalHotkey: RegisterHotKey failed for '%s'", hotkeyStr)
 			return
 		}
+		writeLog("registerGlobalHotkey: registered '%s' successfully", hotkeyStr)
 		defer unregisterHotKey.Call(0, 1)
 
 		var msg MSG
@@ -229,7 +260,6 @@ func setupSystray(app *App) {
 					if wailsCtx != nil {
 						wailsRuntime.Quit(wailsCtx)
 					}
-					os.Exit(0)
 				}
 			}
 		}()
@@ -245,12 +275,7 @@ func main() {
 		fmt.Printf("Ứng dụng đang được chạy ngầm. Không khởi tạo bản mới.\n")
 		os.Exit(0)
 	}
-	defer func() {
-		// Keep reference to mutex handle to keep it alive for process duration
-		if hMutex != 0 {
-			_ = hMutex
-		}
-	}()
+	defer runtime.KeepAlive(hMutex)
 
 	// 2. Create app instance
 	app := NewApp()
