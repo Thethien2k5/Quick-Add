@@ -23,7 +23,7 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-//go:embed build/windows/icon.ico
+//go:embed build/appicon.ico
 var appIconBytes []byte
 
 var (
@@ -79,18 +79,18 @@ func checkSingleInstance() (uintptr, error) {
 }
 
 func getIconBytes() []byte {
-	// Try "../IconApp.png" (development mode inside Project/)
-	if data, err := os.ReadFile("../IconApp.png"); err == nil {
+	// Try "../IconApp.ico" (development mode inside Project/)
+	if data, err := os.ReadFile("../IconApp.ico"); err == nil {
 		return data
 	}
-	// Try "IconApp.png" (production mode in root)
-	if data, err := os.ReadFile("IconApp.png"); err == nil {
+	// Try "IconApp.ico" (production mode in root)
+	if data, err := os.ReadFile("IconApp.ico"); err == nil {
 		return data
 	}
 	// Fallback to executable folder
 	if exePath, err := os.Executable(); err == nil {
 		dir := filepath.Dir(exePath)
-		if data, err := os.ReadFile(filepath.Join(dir, "IconApp.png")); err == nil {
+		if data, err := os.ReadFile(filepath.Join(dir, "IconApp.ico")); err == nil {
 			return data
 		}
 	}
@@ -236,7 +236,7 @@ func registerGlobalHotkey(hotkeyStr string, app *App) {
 }
 
 func setupSystray(app *App) {
-	go systray.Run(func() {
+	systray.Run(func() {
 		if len(appIconBytes) > 0 {
 			systray.SetIcon(appIconBytes)
 		}
@@ -280,9 +280,10 @@ func main() {
 	// 2. Create app instance
 	app := NewApp()
 
-	// 3. Setup System Tray
-	appIconBytes = getIconBytes()
-	setupSystray(app)
+	// 3. Setup System Tray Icon
+	if dynamicIcon := getIconBytes(); len(dynamicIcon) > 0 {
+		appIconBytes = dynamicIcon
+	}
 
 	// 4. Setup Windows Taskbar Hide
 	windowTitle := "QuickAddMainWindow"
@@ -304,6 +305,9 @@ func main() {
 			wailsCtx = ctx
 			app.startup(ctx)
 			
+			// Setup System Tray loop asynchronously inside startup
+			go setupSystray(app)
+
 			// Register Global Hotkey
 			registerGlobalHotkey(app.config.Hotkey, app)
 
