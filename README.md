@@ -104,4 +104,4 @@ Mở cài đặt bằng cách chuột phải vào icon ở System Tray -> Chọn
 
 ## 📄 Giấy phép
 
-Phát triển bởi **Thethien2k5** (thienobita0203@gmail.com).
+Phát triển bởi **Thethien2k5** 
